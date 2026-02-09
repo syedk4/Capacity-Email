@@ -1,0 +1,154 @@
+Subject: Sprint Capacity Automation System - Review Request - Your Feedback Needed
+
+Dear Team,
+
+I hope this email finds you well. I am excited to share with you the Sprint Capacity Automation System that I have developed for our Finance Aspirants Team.
+
+═══════════════════════════════════════════════════════════════════════════════
+🎯 PURPOSE
+═══════════════════════════════════════════════════════════════════════════════
+
+This system automates the calculation and reporting of our team's sprint capacity, taking into account:
+
+✅ Location-based holidays (GCC/India vs US)
+✅ On-call rotations and their impact on capacity
+✅ Planned leaves and public holidays
+✅ Automated report generation and email delivery
+
+🔍 I NEED YOUR EXPERTISE!
+As QA professionals, your feedback is invaluable in ensuring this system is accurate, reliable, and meets our team's needs. Please review the system and provide your suggestions for improvement.
+
+═══════════════════════════════════════════════════════════════════════════════
+📁 REVIEW MATERIALS
+═══════════════════════════════════════════════════════════════════════════════
+
+I have attached the following files for your review:
+
+1. QA_TEAM_REVIEW_DOCUMENT.md
+   → Comprehensive review guide with detailed calculation explanations
+
+2. QA_Feedback_Template.xlsx
+   → Excel feedback form (please fill this out and return)
+
+3. sprint_capacity_report_*.txt
+   → Text format report for all sprints
+
+4. sprint_capacity_report_*.html
+   → HTML format report (open in browser)
+
+5. email_template_filled_*.html
+   → Email template showing next 2 upcoming sprints
+
+═══════════════════════════════════════════════════════════════════════════════
+📋 WHAT TO REVIEW
+═══════════════════════════════════════════════════════════════════════════════
+
+⚡ ACTION ITEMS:
+
+1. Read the Review Document
+   Start with QA_TEAM_REVIEW_DOCUMENT.md to understand the system and calculation logic
+
+2. Review the Reports
+   Open and examine all three report formats (text, HTML, email template)
+
+3. Validate Calculations
+   Use the formulas provided in the review document to manually verify the calculations
+
+4. Test Scenarios
+   Check the test scenarios provided in the Excel template (Sheet 2)
+
+5. Fill Out Feedback Form
+   Complete the QA_Feedback_Template.xlsx with your findings
+
+6. Return Your Feedback
+   Send the completed Excel file back to me
+
+═══════════════════════════════════════════════════════════════════════════════
+🔍 KEY AREAS TO FOCUS ON
+═══════════════════════════════════════════════════════════════════════════════
+
+AREA                    | WHAT TO CHECK
+------------------------|--------------------------------------------------------
+Data Accuracy           | Verify employee data, leave dates, holiday dates, and 
+                        | on-call assignments are correct
+                        |
+Calculations            | Validate Ideal Capacity, Actual Capacity, and Team 
+                        | Capacity % using the formulas provided
+                        |
+Location-Based Logic    | Ensure GCC employees get GCC holidays and US employees 
+                        | get US holidays
+                        |
+Report Format           | Check if reports are clear, professional, and easy to 
+                        | understand
+                        |
+Edge Cases              | Test sprints with no holidays, only GCC holidays, only 
+                        | US holidays, and both
+
+═══════════════════════════════════════════════════════════════════════════════
+💡 EXAMPLE CALCULATION (SPRINT 2)
+═══════════════════════════════════════════════════════════════════════════════
+
+To help you get started, here's an example calculation for Sprint 2:
+
+Sprint 2: Jan 14 - Jan 27, 2026
+
+Step 1: Working Days
+  Total Weekdays (Mon-Fri) = 10 days
+
+Step 2: Location-Based Capacity
+  • GCC Employees: 7 × (10 - 2 GCC holidays) × 6 hrs = 7 × 8 × 6 = 336 hours
+  • US Employees: 3 × (10 - 1 US holiday) × 6 hrs = 3 × 9 × 6 = 162 hours
+  • Total = 336 + 162 = 498 hours
+
+Step 3: On-Call Reduction
+  Primary on-call works all 10 weekdays with 2 hrs/day reduction
+  On-Call Reduction = 10 × 2 = 20 hours
+
+Step 4: Ideal Capacity
+  Ideal Capacity = 498 - 20 = 478 hours ✅
+
+Step 5: Actual Capacity
+  Total Leave Hours = 60 hours (from planned leaves)
+  Actual Capacity = 478 - 60 = 418 hours ✅
+
+Step 6: Team Capacity %
+  Team Capacity = (418 ÷ 478) × 100 = 87.4% ✅
+
+═══════════════════════════════════════════════════════════════════════════════
+⏰ TIMELINE
+═══════════════════════════════════════════════════════════════════════════════
+
+📅 DEADLINE: Please provide your feedback by [INSERT DEADLINE DATE]
+
+I understand you have your regular work commitments, so I've tried to make this review as straightforward as possible. The Excel template should take approximately 30-45 minutes to complete.
+
+═══════════════════════════════════════════════════════════════════════════════
+❓ QUESTIONS OR CLARIFICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+If you have any questions or need clarification on any aspect of the system, please don't hesitate to reach out to me. I'm available via:
+
+📧 Email: [Your Email]
+💬 Teams: [Your Teams ID]
+📞 Phone: [Your Phone Number]
+
+═══════════════════════════════════════════════════════════════════════════════
+🙏 THANK YOU
+═══════════════════════════════════════════════════════════════════════════════
+
+Thank you in advance for taking the time to review this system. Your expertise and feedback will be instrumental in ensuring this tool serves our team effectively and accurately.
+
+I'm looking forward to your insights and suggestions!
+
+Best regards,
+
+Syed Sufdar Hussain
+Lead QA
+Finance Aspirants Team
+Ashley Furniture
+
+───────────────────────────────────────────────────────────────────────────────
+📊 Sprint Capacity Automation System v2.0 | Developed by Syed Sufdar Hussain
+This is an automated system for sprint capacity planning and reporting
+───────────────────────────────────────────────────────────────────────────────
+

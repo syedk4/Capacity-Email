@@ -1,0 +1,129 @@
+================================================================================
+📧 EMAIL TEMPLATES - START HERE
+================================================================================
+
+Welcome to the Email Templates folder!
+
+This folder contains everything you need to manually send Sprint Capacity 
+Reports via email.
+
+================================================================================
+⚠️ MOST IMPORTANT FILE TO READ FIRST:
+================================================================================
+
+📄 IMPORTANT_EMAIL_TIMING.md
+
+This file explains:
+- When to send the email (last day of current sprint)
+- Which sprints to include (next 2 upcoming sprints)
+- Common mistakes to avoid
+- Checklist before sending
+
+================================================================================
+🚀 QUICK START (3 STEPS):
+================================================================================
+
+STEP 1: Read the timing guide
+   → Open: IMPORTANT_EMAIL_TIMING.md
+
+STEP 2: Generate your report
+   → Run: py sprint_capacity_app.py --analyze
+   → (Run this from the parent folder)
+
+STEP 3: Use the template
+   → Open: email_template_simple.html
+   → Fill in Sprint 2 and Sprint 3 data
+   → Preview in browser
+   → Copy and paste to email
+   → Send!
+
+================================================================================
+📁 FILES IN THIS FOLDER:
+================================================================================
+
+TEMPLATES (Use These):
+----------------------
+✓ email_template_simple.html          ⭐ RECOMMENDED - Use this one
+✓ email_template_simple_SAMPLE.html   ⭐ EXAMPLE - See how it looks
+✓ email_template_simple.txt           Plain text version
+✓ email_template.html                 Advanced (all 4 sprints)
+✓ email_template.txt                  Plain text (all 4 sprints)
+
+DOCUMENTATION (Read These):
+---------------------------
+✓ IMPORTANT_EMAIL_TIMING.md           ⚠️ READ THIS FIRST
+✓ README.md                            Overview of this folder
+✓ QUICK_START_EMAIL.md                Quick reference guide
+✓ EMAIL_TEMPLATE_INSTRUCTIONS.md      Detailed instructions
+✓ README_EMAIL_TEMPLATES.md           Template comparison
+✓ EMAIL_TEMPLATES_SUMMARY.txt         Quick summary
+✓ START_HERE.txt                      This file
+
+================================================================================
+⚠️ KEY POINTS TO REMEMBER:
+================================================================================
+
+1. Send on the LAST DAY of the current sprint
+   Example: If Sprint 1 ends on Jan 13, send on Jan 13
+
+2. Show the NEXT 2 UPCOMING SPRINTS (not the current sprint)
+   Example: If today is last day of Sprint 1, show Sprint 2 and Sprint 3
+
+3. DON'T include the current sprint in the email
+   Example: Don't show Sprint 1 if you're sending on the last day of Sprint 1
+
+4. Use Sprint 2 and Sprint 3 data from your generated report
+
+================================================================================
+📖 RECOMMENDED READING ORDER:
+================================================================================
+
+1. START_HERE.txt                      ← You are here!
+2. IMPORTANT_EMAIL_TIMING.md           ← Critical timing info
+3. QUICK_START_EMAIL.md                ← How to use templates
+4. email_template_simple_SAMPLE.html   ← See the example
+5. email_template_simple.html          ← Use this for your email
+
+================================================================================
+❓ COMMON QUESTIONS:
+================================================================================
+
+Q: Which template should I use?
+A: Use email_template_simple.html for most cases
+
+Q: When should I send the email?
+A: On the last day of the current sprint
+
+Q: Which sprints should I include?
+A: The next 2 upcoming sprints (Sprint 2 and Sprint 3)
+
+Q: Should I include the current sprint?
+A: No, only show the next 2 upcoming sprints
+
+Q: Where can I see an example?
+A: Open email_template_simple_SAMPLE.html in a browser
+
+================================================================================
+🆘 NEED HELP?
+================================================================================
+
+1. Check IMPORTANT_EMAIL_TIMING.md for timing questions
+2. Check QUICK_START_EMAIL.md for quick answers
+3. Check EMAIL_TEMPLATE_INSTRUCTIONS.md for detailed help
+4. Look at email_template_simple_SAMPLE.html for an example
+
+================================================================================
+📞 SUPPORT:
+================================================================================
+
+For questions or issues:
+- Review the documentation files in this folder
+- Contact your Scrum Master
+- Check the main project README in the parent folder
+
+================================================================================
+
+Ready to get started? Open IMPORTANT_EMAIL_TIMING.md next!
+
+================================================================================
+

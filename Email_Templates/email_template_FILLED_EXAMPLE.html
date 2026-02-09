@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.4;
+            color: #000;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .header {
+            background-color: #e8e8e8;
+            padding: 15px 20px;
+            margin-bottom: 10px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #000;
+        }
+
+        .header-info {
+            background-color: #e8e8e8;
+            padding: 10px 20px;
+            margin-bottom: 20px;
+            font-size: 12px;
+        }
+
+        .header-info p {
+            margin: 3px 0;
+        }
+
+        .sprint-section {
+            margin-bottom: 20px;
+        }
+
+        .sprint-title {
+            background-color: #d9e9f7;
+            padding: 8px 15px;
+            font-weight: bold;
+            font-size: 13px;
+            color: #000;
+            margin-bottom: 0;
+        }
+
+        .sprint-metrics {
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-top: none;
+        }
+
+        .metrics-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .metrics-table td {
+            padding: 8px 15px;
+            border-right: 1px solid #e0e0e0;
+            font-size: 12px;
+        }
+
+        .metrics-table td:last-child {
+            border-right: none;
+        }
+
+        .metric-label {
+            font-weight: normal;
+            color: #000;
+            background-color: #f5f5f5;
+        }
+
+        .metric-value {
+            font-weight: normal;
+            color: #000;
+        }
+
+        .capacity-good {
+            color: #008000;
+            font-weight: bold;
+        }
+
+        .team-status-label {
+            background-color: #fff;
+            padding: 8px 15px;
+            font-weight: bold;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            border-top: none;
+            border-bottom: none;
+        }
+
+        .team-table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-top: none;
+            margin-bottom: 15px;
+        }
+
+        .team-table th {
+            background-color: #e8e8e8;
+            padding: 8px 12px;
+            text-align: left;
+            font-weight: bold;
+            font-size: 11px;
+            color: #000;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .team-table td {
+            padding: 6px 12px;
+            font-size: 11px;
+            color: #000;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .team-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .team-table tr.highlight {
+            background-color: #fff9e6;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>Sprint Capacity Report</h1>
+    </div>
+
+    <div class="header-info">
+        <p><strong>Generated:</strong> 2026-01-13 15:45:39</p>
+        <p><strong>Total Team Members:</strong> 8</p>
+        <p><strong>Note:</strong> This report shows the next 2 upcoming sprints</p>
+    </div>
+
+    <!-- Sprint 2 (Next Sprint) -->
+    <div class="sprint-section">
+        <div class="sprint-title">Sprint 2 - 2026-01-14 to 2026-01-27</div>
+        <div class="sprint-metrics">
+            <table class="metrics-table">
+                <tr>
+                    <td class="metric-label">Working Days</td>
+                    <td class="metric-label">GCC Members Count</td>
+                    <td class="metric-label">GCC Team Capacity</td>
+                </tr>
+                <tr>
+                    <td class="metric-value">8</td>
+                    <td class="metric-value">8</td>
+                    <td class="metric-value capacity-good">84.4%</td>
+                </tr>
+            </table>
+        </div>
+        <div class="team-status-label">Team Member Status:</div>
+        <table class="team-table">
+            <thead>
+                <tr>
+                    <th>Emp Id</th>
+                    <th>Emp Name</th>
+                    <th>Planned Leave</th>
+                    <th>GCC Holiday</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>200071</td>
+                    <td>BindhuMadhuri Maddela</td>
+                    <td>-</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+                <tr class="highlight">
+                    <td>200325</td>
+                    <td>Suganya Chandrasekaran</td>
+                    <td>Jan 22</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+                <tr class="highlight">
+                    <td>200417</td>
+                    <td>Dhivya Dharmaraj</td>
+                    <td>Jan 16, Jan 19</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+                <tr>
+                    <td>200210</td>
+                    <td>Murugan, Lakshmipathy</td>
+                    <td>-</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+                <tr class="highlight">
+                    <td>200588</td>
+                    <td>Sampanthamoorthy, Sivaguru</td>
+                    <td>Jan 14, Jan 16</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+                <tr class="highlight">
+                    <td>200411</td>
+                    <td>Murugan Pavithra</td>
+                    <td>Jan 14, Jan 16</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+                <tr class="highlight">
+                    <td>200128</td>
+                    <td>Syed Sufdar Hussain</td>
+                    <td>Jan 14</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+                <tr class="highlight">
+                    <td>200129</td>
+                    <td>TEST</td>
+                    <td>Jan 14</td>
+                    <td>Jan 15, Jan 26</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Sprint 3 -->
+    <div class="sprint-section">
+        <div class="sprint-title">Sprint 3 - 2026-01-28 to 2026-02-10</div>
+        <div class="sprint-metrics">
+            <table class="metrics-table">
+                <tr>
+                    <td class="metric-label">Working Days</td>
+                    <td class="metric-label">GCC Members Count</td>
+                    <td class="metric-label">GCC Team Capacity</td>
+                </tr>
+                <tr>
+                    <td class="metric-value">10</td>
+                    <td class="metric-value">8</td>
+                    <td class="metric-value capacity-good">96.2%</td>
+                </tr>
+            </table>
+        </div>
+        <div class="team-status-label">Team Member Status:</div>
+        <table class="team-table">
+            <thead>
+                <tr>
+                    <th>Emp Id</th>
+                    <th>Emp Name</th>
+                    <th>Planned Leave</th>
+                    <th>GCC Holiday</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="highlight">
+                    <td>200071</td>
+                    <td>BindhuMadhuri Maddela</td>
+                    <td>Feb 02, Feb 03</td>
+                    <td>-</td>
+                </tr>
+                <tr class="highlight">
+                    <td>200325</td>
+                    <td>Suganya Chandrasekaran</td>
+                    <td>Jan 30</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>200417</td>
+                    <td>Dhivya Dharmaraj</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>200210</td>
+                    <td>Murugan, Lakshmipathy</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>200588</td>
+                    <td>Sampanthamoorthy, Sivaguru</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>200411</td>
+                    <td>Murugan Pavithra</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>200128</td>
+                    <td>Syed Sufdar Hussain</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>200129</td>
+                    <td>TEST</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+</body>
+
+</html>
