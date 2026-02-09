@@ -82,6 +82,7 @@ class Sprint:
     end_date: date
     oncall_primary: str = ""
     oncall_secondary: str = ""
+    us_oncall_primary: str = ""  # US on-call person from config
 
     def contains_date(self, check_date: date) -> bool:
         """Check if a date falls within this sprint"""
@@ -136,6 +137,14 @@ class SprintCapacityCalculator:
             "sprint_duration_days": 14,
             "excel_file_path": "CapacityUpdate.xlsx",
             "excel_sheet_name": "",  # Optional: specify sheet name, otherwise auto-detect
+            "us_oncall": {
+                "enabled": False,
+                "primary_name": "",
+                "primary_hours_reduction": 4,
+                "secondary_name": "",
+                "secondary_hours_reduction": 0,
+                "rotation_enabled": False
+            },
             "email_settings": {
                 "smtp_server": "smtp.gmail.com",
                 "smtp_port": 587,
@@ -155,6 +164,15 @@ class SprintCapacityCalculator:
                     if key not in config:
                         config[key] = value
 
+                # Merge us_oncall settings with defaults (nested object)
+                if 'us_oncall' not in config:
+                    config['us_oncall'] = default_config['us_oncall']
+                else:
+                    # Merge nested us_oncall settings
+                    for key, value in default_config['us_oncall'].items():
+                        if key not in config['us_oncall']:
+                            config['us_oncall'][key] = value
+
                 # Override email settings with environment variables if they exist
                 email_settings = config.get('email_settings', {})
                 email_settings['smtp_server'] = os.getenv(
@@ -172,6 +190,12 @@ class SprintCapacityCalculator:
                 # Debug: Log the email configuration
                 logger.info(
                     f"Email config loaded - sender_email: {email_settings.get('sender_email')}, scrum_master_email: {email_settings.get('scrum_master_email')}")
+
+                # Log US on-call configuration if enabled
+                us_oncall = config.get('us_oncall', {})
+                if us_oncall.get('enabled', False):
+                    logger.info(
+                        f"US On-Call enabled - primary: {us_oncall.get('primary_name')}, hours_reduction: {us_oncall.get('primary_hours_reduction')}")
 
                 return config
             except Exception as e:
@@ -810,6 +834,16 @@ class SprintManager:
                     f"Assigned on-call to Sprint {sprint.number}: Primary={oncall.primary}, Secondary={oncall.secondary}")
                 break  # Use the first matching schedule
 
+        # Assign US on-call from config (applies to ALL sprints)
+        us_oncall_config = self.calculator.config.get('us_oncall', {})
+        if us_oncall_config.get('enabled', False):
+            us_oncall_primary_name = us_oncall_config.get(
+                'primary_name', '').strip()
+            if us_oncall_primary_name:
+                sprint.us_oncall_primary = us_oncall_primary_name
+                logger.info(
+                    f"Assigned US on-call to Sprint {sprint.number}: Primary={us_oncall_primary_name}")
+
     def get_current_and_upcoming_sprints(self, oncall_schedules: List[OnCallSchedule] = None) -> List[Sprint]:
         """Get current and upcoming sprints based on today's date"""
         today = date.today()
@@ -1089,19 +1123,156 @@ class SprintManager:
                 oncall_actual_hours = oncall_available_days * oncall_hours_per_day
 
                 # Subtract on-call person from regular team calculation
-                # Remove on-call person's days from regular team
-                regular_team_person_days -= working_days
-                # Adjust for on-call person
-                regular_team_available_days -= (working_days -
-                                                oncall_leave_days)
+                # ONLY if they are part of the regular team (in self.calculator.employees)
+                # Check if this on-call person is in the team
+                is_oncall_in_team = any(emp.emp_id == oncall_employee.emp_id
+                                        for emp in self.calculator.employees)
 
-        # Calculate capacity for regular team members (6 people at full hours)
+                if is_oncall_in_team:
+                    # Remove on-call person's days from regular team
+                    regular_team_person_days -= oncall_working_days
+                    # Adjust for on-call person
+                    regular_team_available_days -= (
+                        oncall_working_days - oncall_leave_days)
+                    logger.info(
+                        f"GCC On-Call person '{oncall_employee.name}' is in the team. "
+                        f"Subtracting {oncall_working_days} days from regular team calculation.")
+                else:
+                    # On-call person is external (not in regular team)
+                    logger.warning(
+                        f"GCC On-Call person '{oncall_employee.name}' is NOT in the team list. "
+                        f"Their capacity ({oncall_ideal_hours:.1f} hrs) will be added to sprint total. "
+                        f"If they should NOT be doing sprint work, this is correct. "
+                        f"If they SHOULD be doing sprint work, please add them to the Excel file.")
+            else:
+                # On-call person not found in team
+                if sprint.oncall_primary:
+                    logger.warning(
+                        f"GCC On-Call Primary '{sprint.oncall_primary}' not found in team for Sprint {sprint.number}. "
+                        f"If this person is doing sprint work, please add them to the Excel 'Leave plans' sheet. "
+                        f"Otherwise, their capacity will not be included in the sprint total.")
+
+        # Handle US On-Call person (from config file)
+        us_oncall_employee = None
+        us_oncall_ideal_hours = 0
+        us_oncall_actual_hours = 0
+
+        us_oncall_config = self.calculator.config.get('us_oncall', {})
+        if us_oncall_config.get('enabled', False):
+            us_oncall_primary_name = us_oncall_config.get(
+                'primary_name', '').strip()
+
+            if us_oncall_primary_name:
+                # Find the US on-call employee by name
+                us_oncall_name_lower = us_oncall_primary_name.lower()
+
+                for employee in self.calculator.employees:
+                    emp_name_lower = employee.name.strip().lower()
+
+                    # Try multiple matching strategies (same as GCC on-call)
+                    # 1. Exact match
+                    if emp_name_lower == us_oncall_name_lower:
+                        us_oncall_employee = employee
+                        break
+
+                    # 2. One name contains the other
+                    if emp_name_lower in us_oncall_name_lower or us_oncall_name_lower in emp_name_lower:
+                        us_oncall_employee = employee
+                        break
+
+                    # 3. Match individual name parts
+                    emp_name_parts = emp_name_lower.replace(
+                        ',', ' ').replace('.', ' ').split()
+                    us_oncall_name_parts = us_oncall_name_lower.replace(
+                        ',', ' ').replace('.', ' ').split()
+
+                    for us_oncall_part in us_oncall_name_parts:
+                        if len(us_oncall_part) > 3:
+                            for emp_part in emp_name_parts:
+                                if us_oncall_part in emp_part or emp_part in us_oncall_part:
+                                    us_oncall_employee = employee
+                                    break
+                        if us_oncall_employee:
+                            break
+
+                    if us_oncall_employee:
+                        break
+
+                if us_oncall_employee:
+                    # Get US on-call hours reduction from config
+                    US_ONCALL_REDUCTION_HOURS = us_oncall_config.get(
+                        'primary_hours_reduction', 4)
+
+                    # Calculate US on-call person's working days
+                    # US on-call person works on ALL weekdays (Mon-Fri) including holidays
+                    us_oncall_working_days = 0
+                    current_date = sprint.start_date
+                    while current_date <= sprint.end_date:
+                        # Count only weekdays (Mon-Fri), holidays ARE working days for on-call
+                        if current_date.weekday() < 5:
+                            us_oncall_working_days += 1
+                        current_date += timedelta(days=1)
+
+                    # Calculate US on-call person's leave days
+                    us_oncall_leave_days = 0
+                    for leave_entry in self.calculator.leave_entries:
+                        if leave_entry.employee.emp_id == us_oncall_employee.emp_id:
+                            if leave_entry.leave_type in ['planned', 'optional_holiday']:
+                                for leave_date in leave_entry.leave_dates:
+                                    if sprint.contains_date(leave_date) and leave_date.weekday() < 5:
+                                        us_oncall_leave_days += 1
+
+                    # US on-call person's available days (excluding leave)
+                    us_oncall_available_days = us_oncall_working_days - us_oncall_leave_days
+
+                    # US on-call person works reduced hours per day
+                    us_oncall_hours_per_day = HOURS_PER_DAY - US_ONCALL_REDUCTION_HOURS
+
+                    # Calculate US on-call person's capacity
+                    us_oncall_ideal_hours = us_oncall_working_days * us_oncall_hours_per_day
+                    us_oncall_actual_hours = us_oncall_available_days * us_oncall_hours_per_day
+
+                    # Subtract US on-call person from regular team calculation
+                    # ONLY if they are part of the regular team (in self.calculator.employees)
+                    # Check if this US on-call person is in the team
+                    is_us_oncall_in_team = any(emp.emp_id == us_oncall_employee.emp_id
+                                               for emp in self.calculator.employees)
+
+                    if is_us_oncall_in_team:
+                        # Remove US on-call person's days from regular team
+                        regular_team_person_days -= us_oncall_working_days
+                        # Adjust for US on-call person
+                        regular_team_available_days -= (
+                            us_oncall_working_days - us_oncall_leave_days)
+                        logger.info(
+                            f"US On-Call applied to Sprint {sprint.number}: {us_oncall_employee.name}, "
+                            f"reduction: {US_ONCALL_REDUCTION_HOURS} hrs/day, "
+                            f"capacity: {us_oncall_actual_hours:.1f}/{us_oncall_ideal_hours:.1f} hours, "
+                            f"subtracted {us_oncall_working_days} days from regular team.")
+                    else:
+                        # US on-call person is external (not in regular team)
+                        logger.warning(
+                            f"US On-Call person '{us_oncall_employee.name}' is NOT in the team list. "
+                            f"Their capacity ({us_oncall_ideal_hours:.1f} hrs) will be added to sprint total. "
+                            f"If they should NOT be doing sprint work, this is correct. "
+                            f"If they SHOULD be doing sprint work, please add them to the Excel file.")
+                else:
+                    # US on-call person not found in team
+                    if us_oncall_primary_name:
+                        logger.warning(
+                            f"US On-Call Primary '{us_oncall_primary_name}' not found in team for Sprint {sprint.number}. "
+                            f"If this person is doing sprint work, please add them to the Excel 'Leave plans' sheet. "
+                            f"Otherwise, their capacity will not be included in the sprint total.")
+
+        # Calculate capacity for regular team members (at full hours)
         regular_team_ideal_hours = regular_team_person_days * HOURS_PER_DAY
         regular_team_actual_hours = regular_team_available_days * HOURS_PER_DAY
 
-        # Total capacity = Regular team + On-call person
-        ideal_capacity_hours = regular_team_ideal_hours + oncall_ideal_hours
-        actual_capacity_hours = regular_team_actual_hours + oncall_actual_hours
+        # Total capacity = Regular team + GCC On-call person + US On-call person
+        ideal_capacity_hours = regular_team_ideal_hours + \
+            oncall_ideal_hours + us_oncall_ideal_hours
+        actual_capacity_hours = regular_team_actual_hours + \
+            oncall_actual_hours + us_oncall_actual_hours
 
         # Calculate capacity percentage based on final values
         capacity_percentage = (
@@ -1178,9 +1349,14 @@ class ReportGenerator:
             # Add on-call information if available
             if sprint.oncall_primary or sprint.oncall_secondary:
                 report_lines.append(
-                    f"On-Call Primary: {sprint.oncall_primary}")
+                    f"GCC On-Call Primary: {sprint.oncall_primary}")
                 report_lines.append(
-                    f"On-Call Secondary: {sprint.oncall_secondary}")
+                    f"GCC On-Call Secondary: {sprint.oncall_secondary}")
+
+            # Add US on-call information if available
+            if sprint.us_oncall_primary:
+                report_lines.append(
+                    f"US On-Call Primary: {sprint.us_oncall_primary}")
 
             # Show all team members with their status
             report_lines.append("\nTeam Member Status:")
@@ -1489,12 +1665,21 @@ class ReportGenerator:
             if sprint.oncall_primary or sprint.oncall_secondary:
                 oncall_cells = f"""
                     <td class="metric-card">
-                        <div class="metric-label">On-Call Primary</div>
+                        <div class="metric-label">GCC On-Call Primary</div>
                         <div class="metric-value oncall">{sprint.oncall_primary or '-'}</div>
                     </td>
                     <td class="metric-card">
-                        <div class="metric-label">On-Call Secondary</div>
+                        <div class="metric-label">GCC On-Call Secondary</div>
                         <div class="metric-value oncall">{sprint.oncall_secondary or '-'}</div>
+                    </td>"""
+
+            # Add US on-call cell if available
+            us_oncall_cell = ""
+            if sprint.us_oncall_primary:
+                us_oncall_cell = f"""
+                    <td class="metric-card">
+                        <div class="metric-label">US On-Call Primary</div>
+                        <div class="metric-value oncall">{sprint.us_oncall_primary}</div>
                     </td>"""
 
             html += f"""
@@ -1529,7 +1714,7 @@ class ReportGenerator:
                         <td class="metric-card">
                             <div class="metric-label">Actual Capacity</div>
                             <div class="metric-value">{capacity.actual_capacity_hours:.1f} hrs</div>
-                        </td>{oncall_cells}
+                        </td>{oncall_cells}{us_oncall_cell}
                     </tr>
                 </table>
             """
@@ -1903,12 +2088,21 @@ class ReportGenerator:
             if sprint_cap.sprint.oncall_primary or sprint_cap.sprint.oncall_secondary:
                 oncall_cells = f"""
                     <td class="metric-card">
-                        <div class="metric-label">On-Call Primary</div>
+                        <div class="metric-label">GCC On-Call Primary</div>
                         <div class="metric-value oncall">{sprint_cap.sprint.oncall_primary or '-'}</div>
                     </td>
                     <td class="metric-card">
-                        <div class="metric-label">On-Call Secondary</div>
+                        <div class="metric-label">GCC On-Call Secondary</div>
                         <div class="metric-value oncall">{sprint_cap.sprint.oncall_secondary or '-'}</div>
+                    </td>"""
+
+            # Add US on-call cell if available
+            us_oncall_cell = ""
+            if sprint_cap.sprint.us_oncall_primary:
+                us_oncall_cell = f"""
+                    <td class="metric-card">
+                        <div class="metric-label">US On-Call Primary</div>
+                        <div class="metric-value oncall">{sprint_cap.sprint.us_oncall_primary}</div>
                     </td>"""
 
             html += f"""
@@ -1943,7 +2137,7 @@ class ReportGenerator:
                         <td class="metric-card">
                             <div class="metric-label">Actual Capacity</div>
                             <div class="metric-value">{sprint_cap.actual_capacity_hours:.1f} hrs</div>
-                        </td>{oncall_cells}
+                        </td>{oncall_cells}{us_oncall_cell}
                     </tr>
                 </table>
 
