@@ -1,8 +1,8 @@
 {
   "sprint_start_date": "2025-12-31",
   "sprint_duration_days": 14,
-  "excel_file_path": "CapacityUpdate.xlsx",
-  "excel_sheet_name": "2026",
+  "excel_file_path": "C:\\Users\\slatheef\\Ashley Furniture Industries, Inc\\IT - Finance - India Finance Team Daily Updates\\2026- India Finance team Daily work status.xlsx",
+  "excel_sheet_name": "Leave plans",
   "hours_per_day": 6,
   "oncall_primary_hours_reduction": 2,
   "email_settings": {
