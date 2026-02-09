@@ -9,7 +9,7 @@ REM Usage: Double-click this file or call from Task Scheduler
 REM ============================================================================
 
 REM Change to project directory
-cd /d "c:\Users\slatheef\Documents\Capacity Email 19012026\Capacity Email"
+cd /d "c:\Users\slatheef\Documents\Capacity-Email"
 
 REM Log start time
 echo. >> sprint_capacity.log
