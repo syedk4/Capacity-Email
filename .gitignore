@@ -26,6 +26,8 @@ build/
 # Logs
 *.log
 sprint_capacity.log
+logs/*.log
+logs/*.txt
 
 # OS
 .DS_Store

@@ -11,11 +11,17 @@ REM ============================================================================
 REM Change to project directory
 cd /d "c:\Users\slatheef\Documents\Capacity-Email"
 
+REM Create logs folder if it doesn't exist
+if not exist "%~dp0logs" mkdir "%~dp0logs"
+
+REM Define log file path within logs folder
+set LOG_FILE="%~dp0logs\sprint_capacity.log"
+
 REM Log start time
-echo. >> sprint_capacity.log
-echo ============================================================================ >> sprint_capacity.log
-echo Task started at %date% %time% >> sprint_capacity.log
-echo ============================================================================ >> sprint_capacity.log
+echo. >> %LOG_FILE%
+echo ============================================================================ >> %LOG_FILE%
+echo Task started at %date% %time% >> %LOG_FILE%
+echo ============================================================================ >> %LOG_FILE%
 
 REM Run the Python script with analysis flag
 REM This will:
@@ -30,15 +36,15 @@ set EXIT_CODE=%ERRORLEVEL%
 
 REM Log completion
 if %EXIT_CODE% equ 0 (
-    echo Task completed successfully at %date% %time% >> sprint_capacity.log
-    echo Exit code: %EXIT_CODE% >> sprint_capacity.log
+    echo Task completed successfully at %date% %time% >> %LOG_FILE%
+    echo Exit code: %EXIT_CODE% >> %LOG_FILE%
 ) else (
-    echo Task FAILED at %date% %time% >> sprint_capacity.log
-    echo Exit code: %EXIT_CODE% >> sprint_capacity.log
+    echo Task FAILED at %date% %time% >> %LOG_FILE%
+    echo Exit code: %EXIT_CODE% >> %LOG_FILE%
 )
 
-echo ============================================================================ >> sprint_capacity.log
-echo. >> sprint_capacity.log
+echo ============================================================================ >> %LOG_FILE%
+echo. >> %LOG_FILE%
 
 REM Exit with the same code as Python script
 exit /b %EXIT_CODE%
