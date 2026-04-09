@@ -129,6 +129,9 @@ class SprintCapacityCalculator:
         self.employees: List[Employee] = []
         self.leave_entries: List[LeaveEntry] = []
         self.oncall_schedules: List[OnCallSchedule] = []
+        # Track which (year, month) sections each employee appears in
+        # Key: emp_id, Value: set of (year, month) tuples
+        self.employee_active_months: Dict[str, set] = {}
 
     def load_config(self, config_file: str) -> Dict:
         """Load configuration from JSON file and merge with environment variables"""
@@ -348,12 +351,17 @@ class ExcelDataParser:
     def __init__(self, calculator: SprintCapacityCalculator):
         self.calculator = calculator
 
-    def parse_excel_file(self, file_path: str) -> Tuple[List[Employee], List[LeaveEntry]]:
+    def parse_excel_file(self, file_path: str) -> Tuple[List[Employee], List[LeaveEntry], Dict[str, set]]:
         """Parse Excel file and extract employee and leave data
 
         This parser handles Excel files where data is organized by month in row groups.
         Each month section starts with a header row containing month names in column headers.
         Automatically detects and uses the current year's sheet.
+
+        Returns:
+            Tuple of (employees, leave_entries, employee_active_months)
+            employee_active_months: Dict mapping emp_id to set of (year, month) tuples
+            indicating which month sections the employee appears in.
         """
         try:
             # Get current year
@@ -446,6 +454,8 @@ class ExcelDataParser:
 
             employees = []
             leave_entries = []
+            # Track which (year, month) sections each employee appears in
+            employee_active_months: Dict[str, set] = {}
 
             # Parse the multi-month structure
             current_month = None
@@ -475,12 +485,12 @@ class ExcelDataParser:
                 if emp_id_val in ['Finance Systems', 'Emp Id'] or emp_id_val == '':
                     for month_name, month_num in month_mapping.items():
                         if month_name == month_val_str.lower():
+                            prev_month = current_month
                             current_month = month_num
-                            # Keep the current year or infer it
-                            if current_month < datetime.now().month:
-                                current_year = datetime.now().year + 1
-                            else:
-                                current_year = datetime.now().year
+                            # If the month goes backward (e.g., Dec->Jan),
+                            # increment the year. Otherwise keep current year.
+                            if prev_month is not None and month_num < prev_month:
+                                current_year += 1
                             logger.info(
                                 f"Found month separator: {month_name.title()} {current_year} (month {month_num})")
                             break
@@ -590,6 +600,13 @@ class ExcelDataParser:
                 if employee not in employees:
                     employees.append(employee)
 
+                # Track which (year, month) section this employee appears in
+                if current_month is not None:
+                    if emp_id_val not in employee_active_months:
+                        employee_active_months[emp_id_val] = set()
+                    employee_active_months[emp_id_val].add(
+                        (current_year, current_month))
+
                 # Process leave columns for this employee
                 # Skip the ID and Name columns
                 skip_columns = [emp_id_column, emp_name_column] if emp_name_column else [
@@ -655,7 +672,17 @@ class ExcelDataParser:
             # This allows users to see complete leave history in reports
             logger.info(
                 f"Parsed {len(employees)} employees and {len(leave_entries)} total leave entries")
-            return employees, leave_entries
+
+            # Log employee active months for debugging
+            for emp_id, months in employee_active_months.items():
+                emp_name = next(
+                    (e.name for e in employees if e.emp_id == emp_id), emp_id)
+                sorted_months = sorted(months)
+                month_strs = [f"{y}-{m:02d}" for y, m in sorted_months]
+                logger.info(
+                    f"Employee '{emp_name}' (ID: {emp_id}) active in months: {', '.join(month_strs)}")
+
+            return employees, leave_entries, employee_active_months
 
         except Exception as e:
             logger.error(f"Error parsing Excel file: {e}")
@@ -798,6 +825,50 @@ class SprintManager:
     def __init__(self, calculator: SprintCapacityCalculator):
         self.calculator = calculator
 
+    def get_active_employees_for_sprint(self, sprint: Sprint) -> List[Employee]:
+        """Get employees who are active during the given sprint period.
+
+        An employee is considered active for a sprint if they appear in any
+        month section of the 'Leave plans' sheet where (year, month) is >=
+        the sprint's start month. This automatically excludes employees who
+        have left the organization (they only appear in past month sections).
+
+        If no active months data is available (e.g., not yet populated),
+        returns all employees for backward compatibility.
+        """
+        active_months = self.calculator.employee_active_months
+        if not active_months:
+            # No active months data available - return all employees
+            return self.calculator.employees
+
+        sprint_year = sprint.start_date.year
+        sprint_month = sprint.start_date.month
+
+        active_employees = []
+        for employee in self.calculator.employees:
+            emp_months = active_months.get(employee.emp_id)
+            if emp_months is None:
+                # Employee has no month tracking data - include them by default
+                active_employees.append(employee)
+                continue
+
+            # Check if employee has data in any month >= sprint's start month
+            is_active = any(
+                (year, month) >= (sprint_year, sprint_month)
+                for year, month in emp_months
+            )
+
+            if is_active:
+                active_employees.append(employee)
+            else:
+                # Employee's latest month data is before this sprint
+                latest_month = max(emp_months)
+                logger.info(
+                    f"Excluding '{employee.name}' (ID: {employee.emp_id}) from Sprint "
+                    f"starting {sprint.start_date} - last active month: {latest_month[0]}-{latest_month[1]:02d}")
+
+        return active_employees
+
     def calculate_sprints(self, start_date: date, num_sprints: int = 6, oncall_schedules: List[OnCallSchedule] = None) -> List[Sprint]:
         """Calculate sprint periods starting from given date"""
         sprints = []
@@ -868,7 +939,10 @@ class SprintManager:
 
     def calculate_sprint_capacity(self, sprint: Sprint) -> SprintCapacity:
         """Calculate capacity for a specific sprint"""
-        total_members = len(self.calculator.employees)
+        # Get only active employees for this sprint (excludes departed employees)
+        active_employees = self.get_active_employees_for_sprint(sprint)
+
+        total_members = len(active_employees)
         members_on_leave = []
         all_members_status = []
 
@@ -877,9 +951,12 @@ class SprintManager:
         gcc_holidays = set()
         us_holidays = set()
 
-        # Collect holidays from leave entries
+        # Collect holidays from leave entries (only from active employees)
         # Holidays are stored per employee in the Excel file
+        active_emp_ids = {emp.emp_id for emp in active_employees}
         for leave_entry in self.calculator.leave_entries:
+            if leave_entry.employee.emp_id not in active_emp_ids:
+                continue
             if leave_entry.leave_type == 'public_holiday':
                 dates_in_sprint = [
                     leave_date for leave_date in leave_entry.leave_dates
@@ -904,8 +981,8 @@ class SprintManager:
                                for d in sorted(us_holidays)]
             us_holidays_display = ", ".join(us_date_strings)
 
-        # Check each employee for leave during this sprint
-        for employee in self.calculator.employees:
+        # Check each active employee for leave during this sprint
+        for employee in active_employees:
             leave_info_by_type = {}  # Group by leave type
 
             # Add location-specific holidays
@@ -1364,8 +1441,8 @@ class ReportGenerator:
 
             # Create table header with both GCC and US Holiday columns
             report_lines.append(
-                f"{'Emp Id':<10} {'Emp Name':<30} {'Planned Leave':<20} {'GCC Holiday':<20} {'US Holiday':<20}")
-            report_lines.append("-" * 112)
+                f"{'Emp Name':<30} {'Planned Leave':<20} {'GCC Holiday':<20} {'US Holiday':<20}")
+            report_lines.append("-" * 100)
 
             for employee, reason in capacity.all_members_status:
                 # Parse the leave reason to separate by type
@@ -1403,7 +1480,7 @@ class ReportGenerator:
                     us_str[:17] + '...') if len(us_str) > 20 else us_str
 
                 report_lines.append(
-                    f"{employee.emp_id:<10} {employee.name:<30} {planned_display:<20} {gcc_display:<20} {us_display:<20}"
+                    f"{employee.name:<30} {planned_display:<20} {gcc_display:<20} {us_display:<20}"
                 )
 
             report_lines.append("-" * 40)
@@ -1726,7 +1803,6 @@ class ReportGenerator:
                 <table class="team-table">
                     <thead>
                         <tr>
-                            <th>Emp ID</th>
                             <th>Employee Name</th>
                             <th>Planned Leave</th>
                             <th>GCC Holiday</th>
@@ -1784,7 +1860,6 @@ class ReportGenerator:
 
                 html += f"""
                         <tr{row_class}>
-                            <td>{employee.emp_id}</td>
                             <td>{employee.name}</td>
                             <td>{planned_str}</td>
                             <td>{gcc_str}</td>
@@ -1806,10 +1881,10 @@ class ReportGenerator:
         return html
 
     def generate_email_template(self, sprint_capacities: List[SprintCapacity]) -> str:
-        """Generate a pre-filled email template with next 2 upcoming sprints"""
-        # Show next 2 upcoming sprints (indices 2 and 3 from the 4 available sprints)
+        """Generate a pre-filled email template with current and next sprint"""
+        # Show current and next sprint (indices 1 and 2 from the 4 available sprints)
         # Available sprints: [Previous, Current, Next, Next+1]
-        # Email template shows: [Next, Next+1]
+        # Email template shows: [Current, Next]
         if len(sprint_capacities) < 4:
             logger.warning(
                 "Not enough sprints to generate email template (need at least 4)")
@@ -1818,10 +1893,10 @@ class ReportGenerator:
         # Use the same reference date as the text report for consistency
         reference_date = datetime.strptime('2025-12-31', '%Y-%m-%d').date()
 
-        # Show next 2 upcoming sprints (skip previous and current)
-        # Get indices 2 and 3 (Next and Next+1)
-        sprints_to_show = sprint_capacities[2:4]
-        sprint_labels = ["Next Sprint", "Next Sprint +1"]
+        # Show current and next sprint (indices 1 and 2)
+        # Get indices 1 and 2 (Current and Next)
+        sprints_to_show = sprint_capacities[1:3]
+        sprint_labels = ["Current Sprint", "Next Sprint"]
 
         # Calculate absolute sprint numbers for all sprints
         absolute_sprint_numbers = []
@@ -2045,7 +2120,7 @@ class ReportGenerator:
                     </td>
                     <td class="info-item">
                         <div class="info-label">Sprints Shown</div>
-                        <div class="info-value">Next 2</div>
+                        <div class="info-value">Current and Next</div>
                     </td>
                 </tr>
             </table>
@@ -2146,7 +2221,6 @@ class ReportGenerator:
                 <table class="team-table">
                     <thead>
                         <tr>
-                            <th>Emp ID</th>
                             <th>Employee Name</th>
                             <th>Planned Leave</th>
                             <th>GCC Holiday</th>
@@ -2202,7 +2276,6 @@ class ReportGenerator:
                     planned_leave or gcc_holiday or us_holiday) else ''
 
                 html += f"""                        <tr{row_class}>
-                            <td>{employee.emp_id}</td>
                             <td>{employee.name}</td>
                             <td>{planned_str}</td>
                             <td>{gcc_str}</td>
@@ -2369,9 +2442,11 @@ class SprintCapacityApp:
                 logger.error(f"Excel file not found: {excel_file}")
                 return False
 
-            employees, leave_entries = self.parser.parse_excel_file(excel_file)
+            employees, leave_entries, employee_active_months = self.parser.parse_excel_file(
+                excel_file)
             self.calculator.employees = employees
             self.calculator.leave_entries = leave_entries
+            self.calculator.employee_active_months = employee_active_months
 
             if not employees:
                 logger.warning("No employees found in Excel file")
@@ -2460,7 +2535,7 @@ class SprintCapacityApp:
         if email_template_file:
             print("\n📧 Email Template Ready!")
             print(f"   Open: {email_template_file}")
-            print("   This template contains the next 2 upcoming sprints data")
+            print("   This template contains the current and next sprint data")
             print("   Copy and paste into your email client")
             print("="*60)
 
