@@ -32,6 +32,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables from .env file
 load_dotenv()
@@ -83,6 +84,8 @@ class Sprint:
     oncall_primary: str = ""
     oncall_secondary: str = ""
     us_oncall_primary: str = ""  # US on-call person from config
+    # Sprint name from Jira (e.g., "Finance Sprint 14 (2026-Q2-3)")
+    jira_sprint_name: str = ""
 
     def contains_date(self, check_date: date) -> bool:
         """Check if a date falls within this sprint"""
@@ -343,6 +346,138 @@ class SprintCapacityCalculator:
 
         # Default to current month if not found
         return datetime.now().month, current_year
+
+    def fetch_jira_sprints(self, sprints: List['Sprint']) -> None:
+        """Fetch sprint names from Jira and match them to calculated sprints.
+
+        Uses the Jira Agile REST API to get sprints from the configured board,
+        then matches them to calculated sprints by date overlap.
+        Updates each Sprint's jira_sprint_name field in-place.
+        """
+        jira_config = self.config.get('jira', {})
+        if not jira_config.get('enabled', False):
+            logger.info("Jira integration is disabled in config")
+            return
+
+        base_url = jira_config.get('base_url', '').rstrip('/')
+        board_id = jira_config.get('board_id')
+        jira_email = os.getenv('JIRA_EMAIL', '')
+        jira_token = os.getenv('JIRA_API_TOKEN', '')
+
+        if not all([base_url, board_id, jira_email, jira_token]):
+            logger.warning(
+                "Jira configuration incomplete - missing base_url, board_id, "
+                "JIRA_EMAIL, or JIRA_API_TOKEN. Skipping Jira sprint name fetch.")
+            return
+
+        try:
+            # Fetch sprints from Jira board (active + future + recently closed)
+            url = f"{base_url}/rest/agile/1.0/board/{board_id}/sprint"
+            auth = (jira_email, jira_token)
+            all_jira_sprints = []
+
+            # Paginate through all sprints
+            start_at = 0
+            while True:
+                params = {'startAt': start_at, 'maxResults': 50,
+                          'state': 'active,future,closed'}
+                response = requests.get(
+                    url, auth=auth, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+
+                jira_sprints = data.get('values', [])
+                all_jira_sprints.extend(jira_sprints)
+
+                if data.get('isLast', True):
+                    break
+                start_at += len(jira_sprints)
+
+            logger.info(
+                f"Fetched {len(all_jira_sprints)} sprints from Jira board {board_id}")
+
+            # Match Jira sprints to calculated sprints by date overlap
+            for sprint in sprints:
+                best_match = None
+                best_overlap = 0
+
+                for js in all_jira_sprints:
+                    js_start_str = js.get('startDate', '')
+                    js_end_str = js.get('endDate', '')
+                    if not js_start_str or not js_end_str:
+                        continue
+
+                    # Parse Jira sprint dates (ISO format)
+                    js_start = datetime.fromisoformat(
+                        js_start_str.replace('Z', '+00:00')).date()
+                    js_end = datetime.fromisoformat(
+                        js_end_str.replace('Z', '+00:00')).date()
+
+                    # Calculate overlap days
+                    overlap_start = max(sprint.start_date, js_start)
+                    overlap_end = min(sprint.end_date, js_end)
+                    overlap_days = (overlap_end - overlap_start).days + 1
+
+                    if overlap_days > best_overlap:
+                        best_overlap = overlap_days
+                        best_match = js
+
+                # Require at least half the sprint duration to overlap to avoid edge-day false matches
+                min_overlap = (sprint.end_date - sprint.start_date).days // 2
+                if best_match and best_overlap >= min_overlap:
+                    sprint.jira_sprint_name = best_match['name']
+                    logger.info(
+                        f"Matched Sprint {sprint.number} ({sprint.start_date} - {sprint.end_date}) "
+                        f"-> Jira: '{sprint.jira_sprint_name}'")
+                else:
+                    logger.info(
+                        f"No Jira sprint match found for Sprint {sprint.number} "
+                        f"({sprint.start_date} - {sprint.end_date})")
+
+            # For sprints without a Jira match, auto-generate name from the previous matched sprint
+            # Pattern: "Finance Sprint 14 (2026-Q2-3)" → "Finance Sprint 15 (2026-Q2-4)"
+            for i, sprint in enumerate(sprints):
+                if sprint.jira_sprint_name:
+                    continue  # Already matched
+
+                # Find the closest previous sprint that has a Jira name
+                prev_name = None
+                for j in range(i - 1, -1, -1):
+                    if sprints[j].jira_sprint_name:
+                        prev_name = sprints[j].jira_sprint_name
+                        steps = i - j
+                        break
+
+                if prev_name:
+                    # Parse pattern like "Finance Sprint 14 (2026-Q2-3)"
+                    match = re.match(
+                        r'^(.+?\s+)(\d+)\s+\((\d{4})-Q(\d)-(\d+)\)$', prev_name)
+                    if match:
+                        prefix = match.group(1)       # "Finance Sprint "
+                        sprint_num = int(match.group(2)) + steps
+                        year = int(match.group(3))
+                        quarter = int(match.group(4))
+                        sub_num = int(match.group(5)) + steps
+
+                        # Handle quarter rollover (typically ~6-7 sprints per quarter)
+                        # Check if the sprint's start month has moved to a new quarter
+                        sprint_quarter = (sprint.start_date.month - 1) // 3 + 1
+                        if sprint_quarter != quarter:
+                            quarter = sprint_quarter
+                            year = sprint.start_date.year
+                            sub_num = 1  # Reset sub-number for new quarter
+
+                        sprint.jira_sprint_name = f"{prefix}{sprint_num} ({year}-Q{quarter}-{sub_num})"
+                        logger.info(
+                            f"Auto-generated Jira name for Sprint {sprint.number}: "
+                            f"'{sprint.jira_sprint_name}'")
+
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                f"Failed to fetch Jira sprints: {e}. Reports will use default sprint names.")
+        except Exception as e:
+            logger.warning(
+                f"Error processing Jira sprint data: {e}. Reports will use default sprint names.")
 
 
 class ExcelDataParser:
@@ -992,6 +1127,8 @@ class SprintManager:
                 leave_info_by_type['public_holiday'] = [gcc_holidays_display]
 
             # Check all leave entries for this employee
+            # Store actual date objects per leave type to avoid string round-trip issues
+            leave_dates_by_type = {}
             for leave_entry in self.calculator.leave_entries:
                 if leave_entry.employee.emp_id == employee.emp_id:
                     # Get only the leave dates that fall within this sprint
@@ -1005,50 +1142,30 @@ class SprintManager:
                         if leave_entry.leave_type == 'public_holiday':
                             continue
 
-                        # Format the dates as ranges where possible
-                        dates_display = self.calculator.format_dates_as_ranges(
+                        # Group date objects by leave type
+                        if leave_entry.leave_type not in leave_dates_by_type:
+                            leave_dates_by_type[leave_entry.leave_type] = []
+                        leave_dates_by_type[leave_entry.leave_type].extend(
                             dates_in_sprint)
 
-                        # Group by leave type
+                        # Also track in leave_info_by_type for backward compat
                         if leave_entry.leave_type not in leave_info_by_type:
                             leave_info_by_type[leave_entry.leave_type] = []
                         leave_info_by_type[leave_entry.leave_type].append(
-                            dates_display)
+                            self.calculator.format_dates_as_ranges(dates_in_sprint))
 
             if leave_info_by_type:
-                # Format leave reasons with dates
+                # Format leave reasons with dates using the collected date objects
                 leave_reasons = []
-                for leave_type, date_lists in leave_info_by_type.items():
-                    # If there's only one date list, use it directly (already formatted)
-                    if len(date_lists) == 1:
-                        all_dates = date_lists[0]
+                for leave_type in leave_info_by_type.keys():
+                    # Use the actual date objects for proper sorting and formatting
+                    if leave_type in leave_dates_by_type:
+                        sorted_dates = sorted(
+                            set(leave_dates_by_type[leave_type]))
+                        all_dates = self.calculator.format_dates_as_ranges(
+                            sorted_dates)
                     else:
-                        # Multiple date lists need to be combined and re-sorted
-                        # Combine all dates and sort them
-                        all_date_strings = []
-                        for date_list in date_lists:
-                            all_date_strings.extend(
-                                [d.strip() for d in date_list.split(', ')])
-
-                        # Parse dates back to date objects for proper sorting
-                        date_objects = []
-                        for date_str in all_date_strings:
-                            try:
-                                # Parse "Jan 15" format back to date
-                                parsed = datetime.strptime(
-                                    f"{date_str} {sprint.start_date.year}", "%b %d %Y").date()
-                                date_objects.append(parsed)
-                            except:
-                                # If parsing fails, keep the string as is
-                                pass
-
-                        # Sort and format as ranges where possible
-                        if date_objects:
-                            sorted_dates = sorted(date_objects)
-                            all_dates = self.calculator.format_dates_as_ranges(
-                                sorted_dates)
-                        else:
-                            all_dates = ", ".join(all_date_strings)
+                        all_dates = ", ".join(leave_info_by_type[leave_type])
 
                     leave_reasons.append(f"{leave_type}: {all_dates}")
 
@@ -1073,33 +1190,104 @@ class SprintManager:
                 total_weekdays += 1
             current_date += timedelta(days=1)
 
+        # Identify on-call employee IDs (they work all weekdays, no holidays off)
+        oncall_emp_ids = set()
+
+        # GCC on-call from sprint schedule
+        if sprint.oncall_primary:
+            oncall_name_lower = sprint.oncall_primary.strip().lower()
+            for employee in active_employees:
+                emp_name_lower = employee.name.strip().lower()
+                if emp_name_lower == oncall_name_lower:
+                    oncall_emp_ids.add(employee.emp_id)
+                    break
+                if emp_name_lower in oncall_name_lower or oncall_name_lower in emp_name_lower:
+                    oncall_emp_ids.add(employee.emp_id)
+                    break
+                emp_parts = emp_name_lower.replace(
+                    ',', ' ').replace('.', ' ').split()
+                oncall_parts = oncall_name_lower.replace(
+                    ',', ' ').replace('.', ' ').split()
+                matched = False
+                for op in oncall_parts:
+                    if len(op) > 3:
+                        for ep in emp_parts:
+                            if op in ep or ep in op:
+                                oncall_emp_ids.add(employee.emp_id)
+                                matched = True
+                                break
+                    if matched:
+                        break
+                if matched:
+                    break
+
+        # US on-call from config
+        us_oncall_config = self.calculator.config.get('us_oncall', {})
+        if us_oncall_config.get('enabled', False):
+            us_oncall_name = us_oncall_config.get(
+                'primary_name', '').strip().lower()
+            if us_oncall_name:
+                for employee in active_employees:
+                    emp_name_lower = employee.name.strip().lower()
+                    if emp_name_lower == us_oncall_name:
+                        oncall_emp_ids.add(employee.emp_id)
+                        break
+                    if emp_name_lower in us_oncall_name or us_oncall_name in emp_name_lower:
+                        oncall_emp_ids.add(employee.emp_id)
+                        break
+                    emp_parts = emp_name_lower.replace(
+                        ',', ' ').replace('.', ' ').split()
+                    us_parts = us_oncall_name.replace(
+                        ',', ' ').replace('.', ' ').split()
+                    matched = False
+                    for up in us_parts:
+                        if len(up) > 3:
+                            for ep in emp_parts:
+                                if up in ep or ep in up:
+                                    oncall_emp_ids.add(employee.emp_id)
+                                    matched = True
+                                    break
+                        if matched:
+                            break
+                    if matched:
+                        break
+
+        if oncall_emp_ids:
+            oncall_names = [
+                e.name for e in active_employees if e.emp_id in oncall_emp_ids]
+            logger.info(
+                f"On-call employees for Sprint {sprint.number} (no holidays, full 6 hrs/day): {', '.join(oncall_names)}")
+
         # Calculate location-aware working days and capacity
-        # Each employee gets different working days based on their location
+        # On-call employees work ALL weekdays (no holidays off)
+        # Regular employees work weekdays minus their location-specific holidays
         total_person_days = 0
         leave_person_days = 0
 
-        for employee in self.calculator.employees:
-            # Determine which holidays apply to this employee
-            employee_holidays = gcc_holidays if employee.location != "US" else us_holidays
+        for employee in active_employees:
+            is_oncall = employee.emp_id in oncall_emp_ids
 
-            # Calculate working days for this employee (excluding their location-specific holidays)
+            # On-call employees work all weekdays; regular employees exclude holidays
+            if is_oncall:
+                employee_holidays = set()  # No holidays for on-call
+            else:
+                employee_holidays = gcc_holidays if employee.location != "US" else us_holidays
+
+            # Calculate working days for this employee
             employee_working_days = 0
             current_date = sprint.start_date
             while current_date <= sprint.end_date:
-                # Count weekdays that are not holidays for this employee's location
                 if current_date.weekday() < 5 and current_date not in employee_holidays:
                     employee_working_days += 1
                 current_date += timedelta(days=1)
 
-            # Add this employee's working days to total
             total_person_days += employee_working_days
 
-            # Count only planned and optional holiday leave days (not public holidays)
+            # Count planned and optional holiday leave days
             employee_leave_days = 0
             for leave_entry in self.calculator.leave_entries:
                 if leave_entry.employee.emp_id == employee.emp_id:
                     if leave_entry.leave_type in ['planned', 'optional_holiday']:
-                        # Count leave days that fall within this sprint and are working days for this employee
                         for leave_date in leave_entry.leave_dates:
                             if sprint.contains_date(leave_date) and leave_date.weekday() < 5 and leave_date not in employee_holidays:
                                 employee_leave_days += 1
@@ -1117,239 +1305,11 @@ class SprintManager:
         available_members = total_members - len(members_on_leave)
 
         # Calculate ideal and actual capacity in hours (configurable hours per working day)
+        # All employees (including on-call) work at full hours per day
         HOURS_PER_DAY = self.calculator.config.get('hours_per_day', 6)
-        ONCALL_REDUCTION_HOURS = self.calculator.config.get(
-            'oncall_primary_hours_reduction', 3)
 
-        # Calculate base capacity for regular team members (excluding on-call person)
-        # We'll add on-call person's capacity separately
-        regular_team_person_days = total_person_days
-        regular_team_available_days = available_person_days
-
-        # Find and handle on-call person separately
-        oncall_employee = None
-        oncall_ideal_hours = 0
-        oncall_actual_hours = 0
-
-        if sprint.oncall_primary:
-            # Find the primary on-call employee
-            oncall_name_lower = sprint.oncall_primary.strip().lower()
-
-            for employee in self.calculator.employees:
-                emp_name_lower = employee.name.strip().lower()
-
-                # Try multiple matching strategies:
-                # 1. Exact match
-                if emp_name_lower == oncall_name_lower:
-                    oncall_employee = employee
-                    break
-
-                # 2. One name contains the other
-                if emp_name_lower in oncall_name_lower or oncall_name_lower in emp_name_lower:
-                    oncall_employee = employee
-                    break
-
-                # 3. Match individual name parts (e.g., "Siva Guru" matches "Sivaguru")
-                # Remove common separators and compare
-                emp_name_parts = emp_name_lower.replace(
-                    ',', ' ').replace('.', ' ').split()
-                oncall_name_parts = oncall_name_lower.replace(
-                    ',', ' ').replace('.', ' ').split()
-
-                # Check if any significant part of oncall name matches employee name
-                for oncall_part in oncall_name_parts:
-                    if len(oncall_part) > 3:  # Only match significant parts (not "mr", "ms", etc.)
-                        for emp_part in emp_name_parts:
-                            if oncall_part in emp_part or emp_part in oncall_part:
-                                oncall_employee = employee
-                                break
-                    if oncall_employee:
-                        break
-
-                if oncall_employee:
-                    break
-
-            if oncall_employee:
-                # Calculate on-call person's working days
-                # On-call person works on ALL weekdays (Mon-Fri) including GCC holidays
-                oncall_working_days = 0
-                current_date = sprint.start_date
-                while current_date <= sprint.end_date:
-                    # Count only weekdays (Mon-Fri), holidays ARE working days for on-call
-                    if current_date.weekday() < 5:
-                        oncall_working_days += 1
-                    current_date += timedelta(days=1)
-
-                # Calculate on-call person's leave days
-                oncall_leave_days = 0
-                for leave_entry in self.calculator.leave_entries:
-                    if leave_entry.employee.emp_id == oncall_employee.emp_id:
-                        if leave_entry.leave_type in ['planned', 'optional_holiday']:
-                            for leave_date in leave_entry.leave_dates:
-                                if sprint.contains_date(leave_date) and leave_date.weekday() < 5:
-                                    oncall_leave_days += 1
-
-                # On-call person's available days (excluding leave)
-                oncall_available_days = oncall_working_days - oncall_leave_days
-
-                # On-call person works reduced hours per day (HOURS_PER_DAY - ONCALL_REDUCTION_HOURS)
-                oncall_hours_per_day = HOURS_PER_DAY - ONCALL_REDUCTION_HOURS
-
-                # Calculate on-call person's capacity
-                oncall_ideal_hours = oncall_working_days * oncall_hours_per_day
-                oncall_actual_hours = oncall_available_days * oncall_hours_per_day
-
-                # Subtract on-call person from regular team calculation
-                # ONLY if they are part of the regular team (in self.calculator.employees)
-                # Check if this on-call person is in the team
-                is_oncall_in_team = any(emp.emp_id == oncall_employee.emp_id
-                                        for emp in self.calculator.employees)
-
-                if is_oncall_in_team:
-                    # Remove on-call person's days from regular team
-                    regular_team_person_days -= oncall_working_days
-                    # Adjust for on-call person
-                    regular_team_available_days -= (
-                        oncall_working_days - oncall_leave_days)
-                    logger.info(
-                        f"GCC On-Call person '{oncall_employee.name}' is in the team. "
-                        f"Subtracting {oncall_working_days} days from regular team calculation.")
-                else:
-                    # On-call person is external (not in regular team)
-                    logger.warning(
-                        f"GCC On-Call person '{oncall_employee.name}' is NOT in the team list. "
-                        f"Their capacity ({oncall_ideal_hours:.1f} hrs) will be added to sprint total. "
-                        f"If they should NOT be doing sprint work, this is correct. "
-                        f"If they SHOULD be doing sprint work, please add them to the Excel file.")
-            else:
-                # On-call person not found in team
-                if sprint.oncall_primary:
-                    logger.warning(
-                        f"GCC On-Call Primary '{sprint.oncall_primary}' not found in team for Sprint {sprint.number}. "
-                        f"If this person is doing sprint work, please add them to the Excel 'Leave plans' sheet. "
-                        f"Otherwise, their capacity will not be included in the sprint total.")
-
-        # Handle US On-Call person (from config file)
-        us_oncall_employee = None
-        us_oncall_ideal_hours = 0
-        us_oncall_actual_hours = 0
-
-        us_oncall_config = self.calculator.config.get('us_oncall', {})
-        if us_oncall_config.get('enabled', False):
-            us_oncall_primary_name = us_oncall_config.get(
-                'primary_name', '').strip()
-
-            if us_oncall_primary_name:
-                # Find the US on-call employee by name
-                us_oncall_name_lower = us_oncall_primary_name.lower()
-
-                for employee in self.calculator.employees:
-                    emp_name_lower = employee.name.strip().lower()
-
-                    # Try multiple matching strategies (same as GCC on-call)
-                    # 1. Exact match
-                    if emp_name_lower == us_oncall_name_lower:
-                        us_oncall_employee = employee
-                        break
-
-                    # 2. One name contains the other
-                    if emp_name_lower in us_oncall_name_lower or us_oncall_name_lower in emp_name_lower:
-                        us_oncall_employee = employee
-                        break
-
-                    # 3. Match individual name parts
-                    emp_name_parts = emp_name_lower.replace(
-                        ',', ' ').replace('.', ' ').split()
-                    us_oncall_name_parts = us_oncall_name_lower.replace(
-                        ',', ' ').replace('.', ' ').split()
-
-                    for us_oncall_part in us_oncall_name_parts:
-                        if len(us_oncall_part) > 3:
-                            for emp_part in emp_name_parts:
-                                if us_oncall_part in emp_part or emp_part in us_oncall_part:
-                                    us_oncall_employee = employee
-                                    break
-                        if us_oncall_employee:
-                            break
-
-                    if us_oncall_employee:
-                        break
-
-                if us_oncall_employee:
-                    # Get US on-call hours reduction from config
-                    US_ONCALL_REDUCTION_HOURS = us_oncall_config.get(
-                        'primary_hours_reduction', 4)
-
-                    # Calculate US on-call person's working days
-                    # US on-call person works on ALL weekdays (Mon-Fri) including holidays
-                    us_oncall_working_days = 0
-                    current_date = sprint.start_date
-                    while current_date <= sprint.end_date:
-                        # Count only weekdays (Mon-Fri), holidays ARE working days for on-call
-                        if current_date.weekday() < 5:
-                            us_oncall_working_days += 1
-                        current_date += timedelta(days=1)
-
-                    # Calculate US on-call person's leave days
-                    us_oncall_leave_days = 0
-                    for leave_entry in self.calculator.leave_entries:
-                        if leave_entry.employee.emp_id == us_oncall_employee.emp_id:
-                            if leave_entry.leave_type in ['planned', 'optional_holiday']:
-                                for leave_date in leave_entry.leave_dates:
-                                    if sprint.contains_date(leave_date) and leave_date.weekday() < 5:
-                                        us_oncall_leave_days += 1
-
-                    # US on-call person's available days (excluding leave)
-                    us_oncall_available_days = us_oncall_working_days - us_oncall_leave_days
-
-                    # US on-call person works reduced hours per day
-                    us_oncall_hours_per_day = HOURS_PER_DAY - US_ONCALL_REDUCTION_HOURS
-
-                    # Calculate US on-call person's capacity
-                    us_oncall_ideal_hours = us_oncall_working_days * us_oncall_hours_per_day
-                    us_oncall_actual_hours = us_oncall_available_days * us_oncall_hours_per_day
-
-                    # Subtract US on-call person from regular team calculation
-                    # ONLY if they are part of the regular team (in self.calculator.employees)
-                    # Check if this US on-call person is in the team
-                    is_us_oncall_in_team = any(emp.emp_id == us_oncall_employee.emp_id
-                                               for emp in self.calculator.employees)
-
-                    if is_us_oncall_in_team:
-                        # Remove US on-call person's days from regular team
-                        regular_team_person_days -= us_oncall_working_days
-                        # Adjust for US on-call person
-                        regular_team_available_days -= (
-                            us_oncall_working_days - us_oncall_leave_days)
-                        logger.info(
-                            f"US On-Call applied to Sprint {sprint.number}: {us_oncall_employee.name}, "
-                            f"reduction: {US_ONCALL_REDUCTION_HOURS} hrs/day, "
-                            f"capacity: {us_oncall_actual_hours:.1f}/{us_oncall_ideal_hours:.1f} hours, "
-                            f"subtracted {us_oncall_working_days} days from regular team.")
-                    else:
-                        # US on-call person is external (not in regular team)
-                        logger.warning(
-                            f"US On-Call person '{us_oncall_employee.name}' is NOT in the team list. "
-                            f"Their capacity ({us_oncall_ideal_hours:.1f} hrs) will be added to sprint total. "
-                            f"If they should NOT be doing sprint work, this is correct. "
-                            f"If they SHOULD be doing sprint work, please add them to the Excel file.")
-                else:
-                    # US on-call person not found in team
-                    if us_oncall_primary_name:
-                        logger.warning(
-                            f"US On-Call Primary '{us_oncall_primary_name}' not found in team for Sprint {sprint.number}. "
-                            f"If this person is doing sprint work, please add them to the Excel 'Leave plans' sheet. "
-                            f"Otherwise, their capacity will not be included in the sprint total.")
-
-        # Calculate capacity for regular team members (at full hours)
-        regular_team_ideal_hours = regular_team_person_days * HOURS_PER_DAY
-        regular_team_actual_hours = regular_team_available_days * HOURS_PER_DAY
-
-        # Total capacity = Regular team + GCC On-call person + US On-call person
-        ideal_capacity_hours = regular_team_ideal_hours + \
-            oncall_ideal_hours + us_oncall_ideal_hours
-        actual_capacity_hours = regular_team_actual_hours + \
-            oncall_actual_hours + us_oncall_actual_hours
+        ideal_capacity_hours = total_person_days * HOURS_PER_DAY
+        actual_capacity_hours = available_person_days * HOURS_PER_DAY
 
         # Calculate capacity percentage based on final values
         capacity_percentage = (
@@ -1397,7 +1357,8 @@ class ReportGenerator:
             # Calculate absolute sprint number from reference date
             days_from_reference = (sprint.start_date - reference_date).days
             absolute_sprint_number = (days_from_reference // 14) + 1
-            report_lines.append(f"SPRINT {absolute_sprint_number}")
+            sprint_title = sprint.jira_sprint_name if sprint.jira_sprint_name else f"SPRINT {absolute_sprint_number}"
+            report_lines.append(sprint_title)
             report_lines.append(
                 f"Period: {sprint.start_date.strftime('%Y-%m-%d')} to {sprint.end_date.strftime('%Y-%m-%d')}")
             report_lines.append(f"Working Days: {capacity.working_days}")
@@ -1763,7 +1724,7 @@ class ReportGenerator:
             <!-- Sprint {absolute_sprint_number} -->
             <div class="sprint-section">
                 <div class="sprint-title">
-                    <span>Sprint {absolute_sprint_number} ({sprint.start_date.strftime('%b %d')} - {sprint.end_date.strftime('%b %d, %Y')})</span>
+                    <span>{sprint.jira_sprint_name or f'Sprint {absolute_sprint_number}'} ({sprint.start_date.strftime('%b %d')} - {sprint.end_date.strftime('%b %d, %Y')})</span>
                 </div>
 
                 <table class="metrics-grid">
@@ -2184,7 +2145,7 @@ class ReportGenerator:
             <!-- Sprint {idx + 1} -->
             <div class="sprint-section">
                 <div class="sprint-title">
-                    <span>Sprint {absolute_sprint_num} - {sprint_label} ({sprint_cap.sprint.start_date.strftime('%b %d')} - {sprint_cap.sprint.end_date.strftime('%b %d, %Y')})</span>
+                    <span>{sprint_cap.sprint.jira_sprint_name or f'Sprint {absolute_sprint_num}'} - {sprint_label} ({sprint_cap.sprint.start_date.strftime('%b %d')} - {sprint_cap.sprint.end_date.strftime('%b %d, %Y')})</span>
                 </div>
 
                 <table class="metrics-grid">
@@ -2344,7 +2305,12 @@ class EmailSender:
                 return False
 
             # Build recipient list: scrum master + additional recipients
-            recipients = [self.email_config['scrum_master_email']]
+            # Support comma-separated email addresses in scrum_master_email
+            scrum_master_emails = [
+                email.strip() for email in self.email_config['scrum_master_email'].split(',')
+                if email.strip()
+            ]
+            recipients = scrum_master_emails
 
             # Get additional recipients from environment variable
             additional_recipients_env = os.getenv('ADDITIONAL_RECIPIENTS', '')
@@ -2459,6 +2425,10 @@ class SprintCapacityApp:
             # Step 2: Calculate sprint capacities
             sprints = self.sprint_manager.get_current_and_upcoming_sprints(
                 oncall_schedules)
+
+            # Step 2.5: Fetch Jira sprint names and match to calculated sprints
+            self.calculator.fetch_jira_sprints(sprints)
+
             sprint_capacities = []
 
             for sprint in sprints:

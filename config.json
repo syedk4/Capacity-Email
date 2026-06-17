@@ -5,14 +5,20 @@
   "excel_sheet_name": "Leave plans",
   "use_sharepoint": false,
   "hours_per_day": 6,
-  "oncall_primary_hours_reduction": 4,
+  "oncall_primary_hours_reduction": 6,
   "us_oncall": {
     "enabled": true,
     "primary_name": "Satish Kamble",
-    "primary_hours_reduction": 4,
+    "primary_hours_reduction": 6,
     "secondary_name": "",
     "secondary_hours_reduction": 0,
     "rotation_enabled": false
+  },
+  "jira": {
+    "enabled": true,
+    "base_url": "https://ashley-furniture-team.atlassian.net",
+    "project_key": "FA",
+    "board_id": 1160
   },
   "email_settings": {
     "smtp_server": "",
